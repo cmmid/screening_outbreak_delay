@@ -327,7 +327,7 @@ server <- function(input, output, session){
           label = ifelse(
             is.infinite(median),
             "50%: no outbreak",
-            paste0("50%: â¥ ", round(median), " days delay")
+            paste0("50%: ≥ ", round(median), " days delay")
           )
         ),
         nudge_x = 0.5,
@@ -345,7 +345,7 @@ server <- function(input, output, session){
           label = ifelse(
             is.infinite(lower_250),
             "75%: no outbreak",
-            paste0("75%: â¥ ", round(lower_250), " days delay")
+            paste0("75%: ≥ ", round(lower_250), " days delay")
           )
         ),
         nudge_x = 0.5,
@@ -364,7 +364,7 @@ server <- function(input, output, session){
           label = ifelse(
             is.infinite(upper_750),
             "25%: no outbreak",
-            paste0("25%: â¥ ", round(upper_750), " days delay")
+            paste0("25%: ≥ ", round(upper_750), " days delay")
           )
         ),
         nudge_x = 0.5,
@@ -383,7 +383,7 @@ server <- function(input, output, session){
           label = ifelse(
             is.infinite(lower_025),
             "97.5%: no outbreak",
-            paste0("97.5%: â¥ ", round(lower_025), " days delay")
+            paste0("97.5%: ≥ ", round(lower_025), " days delay")
           )
         ),
         nudge_x = -0.5,
@@ -402,7 +402,7 @@ server <- function(input, output, session){
           label = ifelse(
             is.infinite(upper_975),
             "2.5%: no outbreak",
-            paste0("2.5%: â¥ ", round(upper_975), " days delay")
+            paste0("2.5%: ≥ ", round(upper_975), " days delay")
           )
         ),
         nudge_x = 0.5,
