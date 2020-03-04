@@ -21,7 +21,7 @@ source("gamma.parms.from.quantiles.R")
 time_to_event <- function(n, mean, var){
   if (var > 0){
     parms <- moment_match(mean, var)
-    return(rgamma(n, shape = parms$alpha, rate = parms$beta))
+    return(rgamma(n, shape = parms$shape, rate = parms$rate))
   } else{
     return(rep(mean, n))
   }
@@ -31,20 +31,36 @@ time_to_event <- function(n, mean, var){
 # and arrival times
 generate_histories <- function(input){
   
+  #browser()
+  
+  input <- data.frame(
+    dur.flight = input$dur.flight,
+    dur_flight = input$dur.flight/24,
+    mu_inc     = input$mu_inc,
+    sigma_inc  = input$sigma_inc,
+    mu_inf     = input$mu_inf,
+    sigma_inf  = input$sigma_inf,
+    sens.exit  = input$sens.exit,
+    sens.entry = input$sens.entry,
+    prop.asy   = input$prop.asy,
+    mu_recov   = input$mu_inf,
+    sigma_recov= input$sigma_inf,
+    sims=3000)
+  
   with(input,
        data.frame(
          incu  = time_to_event(n = sims, mean =  mu_inc, var =  sigma_inc),
          inf   = time_to_event(sims, mu_inf, sigma_inf),
          recov = time_to_event(sims, mu_recov, sigma_recov)) %>%
          mutate(flight.departure = runif(sims, min = 0, max =2*(incu + inf)),
-                flight.arrival   = flight.departure + dur_flight) )
+                flight.arrival   = flight.departure + dur_flight) 
+  ) %>% as.data.frame()
   
 }
 
 # given infection histories above, what proportion of travellers end up being 
 # caught at each step in the screening process?
 calc_outcomes <- function(infection_histories, parms){
-  
   infection_histories %>%
     mutate(
       hospitalised_prior_to_departure = inf + incu < flight.departure) %>%
@@ -89,7 +105,6 @@ calc_outcomes <- function(infection_histories, parms){
 calc_probs <- function(outcomes,
                        parms){
   
-  
   outcomes %>%
     summarise(
       prop_sev_at_entry = (1-parms$prop.asy/100)*mean(sev_at_entry),
@@ -111,7 +126,7 @@ calc_probs <- function(outcomes,
 
 # list of pathogens that may be worth considering as sensitivity
 pathogen <- list(
-  `nCoV-2019` = 
+  `SARS-CoV-2` = 
     data.frame(
       # (Li et al. (2020) NEJM)
       mu_inc    =  5.2,
@@ -119,8 +134,11 @@ pathogen <- list(
       mu_inf    =  9.1,
       sigma_inf = 14.7,
       prop.asy  = 17,
-      mu_recov  = 14.7,
-      sigma_recov = 56.1
+      # mu_recov  = 14.7,
+      # sigma_recov = 56.1,
+      k         = 0.54,
+      r0l       = 1.4,
+      r0u       = 3.9
     ),
   
   # `nCoV-2019 (Backer)` = 
@@ -140,23 +158,38 @@ pathogen <- list(
       sigma_inc = 16.7,
       mu_inf    =  3.8,
       sigma_inf =  6.0,
-      prop.asy  =  0.0),
+      prop.asy  =  0.0,
+      k         =  0.16,
+      r0l = 2.2, r0u = 3.7),
   `Flu A/H1N1-like (2009)` =
     data.frame(
+      
+      
       mu_inc    =  4.3,
       sigma_inc =  1.05,
-      mu_inf    =  9.3,
-      sigma_inf =  0.7,
-      prop.asy  = 16.0 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4586318/ 
-    ),
-  `MERS-like (2012)` = 
-    data.frame(
-      mu_inc    =  5.5,
-      sigma_inc = 6.25, # https://www.sciencedirect.com/science/article/pii/S1473309913703049?via%3Dihub#sec1
-      mu_inf    =  5.0,  # https://www.nejm.org/doi/10.1056/NEJMoa1306742
-      sigma_inf =  7.5,
-      prop.asy  = 21.0  # https://doi.org/10.1016/j.tmaid.2018.12.003 citing https://www.who.int/csr/disease/coronavirus_infections/risk-assessment-august-2018.pdf?ua=1
-    ),
+      mu_inf    = 10.6,
+      sigma_inf =  34.2,
+      prop.asy  = 16.0, # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4586318/ 
+      k         =  2) %>% 
+    cbind( #https://bmcinfectdis.biomedcentral.com/articles/10.1186/1471-2334-14-480/tables/4
+      with(gamma.parms.from.quantiles(q = c(1.3, 1.7), 
+                                      p = c(0.25, 0.75)),
+           qgamma(p=c(0.025, 0.975), 
+                  shape = shape, rate =rate)) %>%
+        as.list %>% 
+        set_names(., c("r0l", "r0u")) %>%
+        as.data.frame),
+  # `MERS-like (2012)` = 
+  # data.frame(
+  #     mu_inc    =  5.5,
+  #     sigma_inc = 6.25, # https://www.sciencedirect.com/science/article/pii/S1473309913703049?via%3Dihub#sec1
+  #     mu_inf    =  5.0,  # https://www.nejm.org/doi/10.1056/NEJMoa1306742
+  #     sigma_inf =  7.5,
+  #     prop.asy  = 21.0,  # https://doi.org/10.1016/j.tmaid.2018.12.003 citing https://www.who.int/csr/disease/coronavirus_infections/risk-assessment-august-2018.pdf?ua=1
+  #     k         = 0.26,
+  #     r0l = 0.3,
+  #     r0u = 0.8
+  #   ),
   # for the app at http://cmmid-lshtm.shinyapps.io/traveller_screening
   Custom     = 
     data.frame(
@@ -164,7 +197,10 @@ pathogen <- list(
       sigma_inc =  5.0,
       mu_inf    =  5.0,
       sigma_inf =  5.0,
-      prop.asy  = 10.0)) %>%
+      prop.asy  = 10.0,
+      k         = 1,
+      r0l = 2.5,
+      r0u = 2.5)) %>%
   dplyr::bind_rows(., .id = "name")
 
 
@@ -177,22 +213,35 @@ make_ci_label <- function(x){
 
 # function to generate travellers to have screening applied
 generate_travellers <- function(input, i){
-  tibble(i = i) %>% 
-    mutate(probs=future_pmap(.f=generate_histories,
-                             list(   
-                               dur.flight = input$dur.flight,
-                               dur_flight = input$dur.flight/24,
-                               mu_inc     = input$mu_inc,
-                               sigma_inc  = input$sigma_inc,
-                               mu_inf     = input$mu_inf,
-                               sigma_inf  = input$sigma_inf,
-                               sens.exit  = input$sens.exit,
-                               sens.entry = input$sens.entry,
-                               prop.asy   = input$prop.asy,
-                               sims       = i)) %>%
-             calc_outcomes(., input) %>%
-             calc_probs(., input)) %>% 
-    unnest_wider(probs)
+  
+  input_df <- data.frame(
+    dur.flight = input$dur.flight,
+    dur_flight = input$dur.flight/24,
+    mu_inc     = input$mu_inc,
+    sigma_inc  = input$sigma_inc,
+    mu_inf     = input$mu_inf,
+    sigma_inf  = input$sigma_inf,
+    sens.exit  = input$sens.exit,
+    sens.entry = input$sens.entry,
+    prop.asy   = input$prop.asy,
+    mu_recov   = input$mu_inf,
+    sigma_recov= input$sigma_inf)
+  
+  travellers <- tibble(sims = i) %>%
+    mutate(rep=row_number()) %>% 
+    crossing(input_df) %>% 
+    group_by(rep) %>% 
+    nest() %>% 
+    mutate(hist=future_pmap(.f=generate_histories,
+                            .l=list(input=data))) %>% 
+    mutate(outcomes=future_pmap(.f=calc_outcomes,
+                                .l=list(infection_histories=hist, 
+                                        parms=data))) %>%
+    mutate(probs=future_pmap(.f=calc_probs,
+                             .l=list(outcomes=outcomes,
+                                     parms=data))) %>% 
+    select(probs)%>%
+    unnest_wider(probs) %>%ungroup %>%  select(-rep)
 }
 
 # function to take travellers and work out their detection probabilities
@@ -236,7 +285,7 @@ assign_labels <- function(x){
 
 # https://journals.plos.org/plospathogens/article?id=10.1371/journal.ppat.1003277
 T0 <- function(R0, k, c = 0.5){
-
+  
   # 1-c the probability of outbreak
   # c the probability of control
   
@@ -317,7 +366,7 @@ make_results_plot_arrival <- function(delays, x = NULL){
   
   delays %>%
     filter(delta_t >= 0.5) %>%
-   
+    
     ggplot(
       .
     ) + aes(
@@ -357,6 +406,7 @@ make_results_plot_arrival <- function(delays, x = NULL){
   
 }
 
+source("./ggplot_nested_facets.R")
 # make plot where facet has lines varying by rho
 make_results_plot_sensitise <- function(delays, x = NULL){
   
@@ -414,6 +464,111 @@ make_results_plot_sensitise <- function(delays, x = NULL){
   
 }
 
+k_labels <- data.frame(
+  k = c(0.54, 0.16, 2),
+  k_label = factor(
+    paste(
+      "k =",
+      c("0.54 (COVID-19)","0.16 (SARS-like)","2 (Flu-like)")
+    ),paste(
+      "k =",
+      c("0.54 (COVID-19)","0.16 (SARS-like)","2 (Flu-like)")
+    )
+  )
+)
+
+make_results_plot <- function(delay_summaries, x = NULL){
+  
+  if (!is.null(x)){
+    delay_summaries <- inner_join(delay_summaries, x)
+  }
+  
+  delay_summaries %>% inner_join(
+    k_labels, by = "k"
+  ) %>% ggplot(
+    data = .,
+    aes(
+      x = median,
+      y = factor(lambda)
+    )
+    #do not show point-estimate
+    #)+geom_point(
+    #  data = filter(
+    #    delay_summaries,
+    #    is.finite(median)
+    #  ) %>% inner_join(
+    #    k_labels, by = "k"
+    #  )
+  )+geom_segment(
+    aes(
+      x=lower_025,
+      xend=upper_975,
+      yend = ..y..
+    ),
+    size=1,
+    colour="#777777"
+  )+geom_segment(
+    aes(
+      x=lower_250,
+      xend=upper_750,
+      yend = ..y..
+    ),
+    size=2,
+    colour="#000000"
+    #)+facet_grid(
+    #  `Screening`+k_label~contact_tracing, 
+    #  labeller=labeller(
+    #    contact_tracing=contact_labeller
+    #  )
+  )+facet_nested(
+    #ensure same order as in k_labels object
+    # put COVID-19 at top
+    k_label+`Screening`~contact_tracing, 
+    labeller=labeller(
+      contact_tracing=contact_labeller
+    )
+  )+scale_x_log10(
+    #label = scientific_10,
+    breaks=c(0, 1, 100, 10000, 1000000),
+    labels=c("0", "1", "100", "10,000", "1,000,000"),
+    limits = c(NA,2.5e5)
+  )+ylab(
+    "Infected travellers per week"
+  )+xlab(
+    "Number of days outbreak is delayed"
+  )+theme_bw(
+  )+theme(
+    panel.grid.minor.x=element_blank(),
+    legend.position = "bottom"
+  )+annotation_logticks(
+    sides="b"
+  )+geom_text(
+    aes(
+      label=sprintf(
+        "%s - %s ~ (%s - %s)", 
+        floor(lower_250), 
+        ceiling(upper_750),
+        floor(lower_025), 
+        ceiling(upper_975)
+      ) %>% gsub(
+        pattern="Inf",
+        replacement=expression(infinity),
+        x=.
+      ),
+      x=lower_025
+    ),
+    vjust=0,
+    #nudge_y=0.2,
+    nudge_y=0.2,
+    hjust=0,
+    size=4,
+    show.legend=FALSE,
+    parse=TRUE
+  ) 
+}
+
+
+source("gamma.parms.from.quantiles.R")
 
 # make plot where facet has lines varying by theta
 make_results_plot_screening <- function(delays, x = NULL){
@@ -468,7 +623,7 @@ make_results_plot_screening <- function(delays, x = NULL){
                             nester_lambda = label_parsed,
                             nester_rho    = label_value,
                             rho_f = label_parsed)) 
-
+  
 }
 
 # make the smaller plot for the manuscript
@@ -491,7 +646,7 @@ make_results_plot_screening_small <- function(delays, x = NULL){
   
   delays %>%
     filter(delta_t >= 0.5) %>%
-
+    
     ggplot(
       .
     ) + aes(
@@ -536,17 +691,48 @@ make_results_plot_screening_small <- function(delays, x = NULL){
 }
 
 
+fill_na <- function(x){
+  inds <- which(!is.na(x))
+  
+  if (length(inds) != length(x)){
+    
+    if (head(inds,1) > 1){
+      # if there are NAs at the start
+      x[1:(head(inds,1)-1)] <- 0
+    }
+    
+    if (tail(inds,1) < length(inds)){
+      # if there are NAs at the end
+      x[(tail(inds,1)+1):length(x)] <- 1
+    }
+    
+  }
+  
+  x
+}
+
+
 # interpolate the CCDF so that we aren't trying to plot millions of 
-make_interp <- function(x){
-  distinct(x, delta_t, delta_t_ecdf) %>%
-    filter(is.finite(delta_t)) %>%
-    with(., 
+make_interp <- function(x, delta_t_out){
+  
+  
+  if (nrow(x) == 0 | sum(is.finite(x$delta_t)) == 0){
+    return(data.frame(delta_t = delta_t_out,
+                      delta_t_ecdf = 0))
+  } else {
+    x_distinct_finite <- distinct(x, delta_t, delta_t_ecdf) %>%
+      filter(is.finite(delta_t) &!is.na(delta_t_ecdf))
+    
+    with(x_distinct_finite, 
          approx(x = log10(delta_t),
                 y = delta_t_ecdf,
                 xout = log10(delta_t_out))) %>%
-    data.frame(delta_t = 10^.$x,
-               delta_t_ecdf = .$y) %>%
-    select(-x, -y)
+      data.frame(delta_t = 10^.$x,
+                 delta_t_ecdf = .$y) %>%
+      select(-x, -y) %>%
+      mutate(delta_t_ecdf = fill_na(delta_t_ecdf))
+    
+  }
 }
 
 # this makes the variables required for facet_nested in the plot
